@@ -142,12 +142,15 @@ class ApiRequest:
         self.api_fields = [k for k, v in self.__class__.__dict__.items()
                            if isinstance(v, Field)]
         logging.debug(f'API FIELDS {self.api_fields}')
+        self.kwargs = kwargs
+        self.has = []
+
+    def validate(self):
         bad_fields = []
         required_field_errs = []
-        self.has = []
         for field in self.api_fields:
-            if field in kwargs:
-                value = kwargs[field]
+            if field in self.kwargs:
+                value = self.kwargs[field]
                 self.has.append(field)
             else:
                 value = None
@@ -164,9 +167,6 @@ class ApiRequest:
         if bad_fields:
             raise TypeError(f'Bad fields: {bad_fields}')
         logging.debug('CALL REQUEST VALIDATE')
-        self.validate()
-
-    def validate(self):
         return True
 
 
@@ -200,6 +200,7 @@ class OnlineScoreRequest(MethodRequest):
     gender = GenderField(required=False, nullable=True)
 
     def validate(self):
+        super().validate()
         if ('first_name' in self.has and 'last_name' in self.has) or \
                 ('email' in self.has and 'phone' in self.has) or \
                 ('birthday' in self.has and 'gender' in self.has):
@@ -238,6 +239,7 @@ def method_handler(request, ctx, store):
     }
     try:
         req_obj = MethodRequest(**request["body"])
+        req_obj.validate()
         code, response = methods[req_obj.method](req_obj, ctx, store)
     except AttributeError as e:
         return e.args[0], HTTPStatus.UNPROCESSABLE_ENTITY
@@ -250,6 +252,7 @@ def method_handler(request, ctx, store):
 @login_required
 def online_score_handler(request: MethodRequest, ctx, store):
     api_request = OnlineScoreRequest(**request.arguments)
+    api_request.validate()
     if api_request.is_admin:
         return HTTPStatus.OK, {"score": 42}
     logging.debug(f'HAS: {api_request.has}')
@@ -267,6 +270,7 @@ def online_score_handler(request: MethodRequest, ctx, store):
 @login_required
 def clients_interests_handler(request: MethodRequest, ctx, store):
     api_request = ClientsInterestsRequest(ctx, **request.arguments)
+    api_request.validate()
     logging.debug(f'HAS: {api_request.has}')
     ctx['has'] = api_request.has
     return HTTPStatus.OK, {cid: get_interests(store, cid) for cid in api_request.client_ids}
