@@ -13,6 +13,14 @@ from constants import UNKNOWN, MALE, FEMALE, ADMIN_LOGIN, ADMIN_SALT, SALT
 from scoring import get_interests, get_score
 
 
+class ValidationError(Exception):
+    def __init__(self, msg):
+        self.msg = str(msg)
+
+    def __str__(self):
+        return self.msg
+
+
 class Field:
     def __init__(self, required=False, nullable=True):
         self.required = required
@@ -42,24 +50,24 @@ class CharField(Field):
 
     def validate(self, value):
         logging.debug('validating chars')
-        if not (type(value) == str):
-            raise ValueError('Char Field got non-string type')
+        if not isinstance(value, str):
+            raise ValidationError('Char Field got non-string type')
 
 
 class ListField(Field):
 
     def validate(self, value):
         logging.debug('validating list')
-        if not (type(value) == list):
-            raise ValueError('List Field got non-list type')
+        if not isinstance(value, list):
+            raise ValidationError('List Field got non-list type')
 
 
 class DictField(Field):
 
     def validate(self, value):
         logging.debug('validating list')
-        if not (type(value) == dict):
-            raise ValueError('Dict Field got non-dict type')
+        if not isinstance(value, dict):
+            raise ValidationError('Dict Field got non-dict type')
 
 
 class EmailField(CharField):
@@ -68,7 +76,7 @@ class EmailField(CharField):
         logging.debug('validating mail')
         super().validate(value)
         if not ('@' in value):
-            raise ValueError("No '@' in Email Field")
+            raise ValidationError("No '@' in Email Field")
 
 
 class PhoneField(Field):
@@ -77,11 +85,11 @@ class PhoneField(Field):
         logging.debug('validating phone')
         value = str(value)
         if not (len(value) == 11):
-            raise ValueError('Phone Field must contain 11 numbers')
+            raise ValidationError('Phone Field must contain 11 numbers')
         elif not value.isdigit():
-            raise ValueError('Phone Field must contain only digits')
+            raise ValidationError('Phone Field must contain only digits')
         elif not value.startswith('7'):
-            raise ValueError("Phone Field must starts with '7'")
+            raise ValidationError("Phone Field must starts with '7'")
 
 
 class DateField(CharField):
@@ -89,7 +97,10 @@ class DateField(CharField):
     def validate(self, value):
         logging.debug('validating date')
         super().validate(value)
-        date = datetime.strptime(value, "%d.%m.%Y").date()
+        try:
+            datetime.strptime(value, "%d.%m.%Y").date()
+        except ValueError as e:
+            raise ValidationError(e)
 
 
 class BirthDayField(DateField):
@@ -100,7 +111,7 @@ class BirthDayField(DateField):
         value = datetime.strptime(value, "%d.%m.%Y").date()
         today = datetime.now().date()
         if not (today - value).days // 365 < 70:
-            raise ValueError('Incorrect date: (> 70 years old)')
+            raise ValidationError('Incorrect date: (> 70 years old)')
 
 
 class GenderField(Field):
@@ -108,7 +119,7 @@ class GenderField(Field):
     def validate(self, value):
         logging.debug('validating gender')
         if value not in (UNKNOWN, MALE, FEMALE):
-            raise ValueError('Unexpected gender')
+            raise ValidationError('Unexpected gender')
 
 
 class ClientIDsField(ListField):
@@ -117,7 +128,7 @@ class ClientIDsField(ListField):
         logging.debug('validating client ids')
         super().validate(value)
         if not all(map(lambda x: type(x) is int, value)):
-            raise ValueError('Cliend IDs may contains only integers')
+            raise ValidationError('Cliend IDs may contains only integers')
 
 
 class ArgumentsField(DictField):
@@ -143,7 +154,7 @@ class ApiRequest:
             try:
                 logging.debug(f'SET {field} TO {value}')
                 setattr(self, field, value)
-            except ValueError as e:
+            except ValidationError as e:
                 logging.debug(f'FAILED TO SET {field} TO {value}')
                 bad_fields.append((field, e.args[0]))
             except AttributeError:
