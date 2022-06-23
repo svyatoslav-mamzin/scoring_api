@@ -11,6 +11,7 @@ from optparse import OptionParser
 
 from constants import UNKNOWN, MALE, FEMALE, ADMIN_LOGIN, ADMIN_SALT, SALT
 from scoring import get_interests, get_score
+from store import Store
 
 
 class ValidationError(Exception):
@@ -245,6 +246,8 @@ def method_handler(request, ctx, store):
         return e.args[0], HTTPStatus.UNPROCESSABLE_ENTITY
     except TypeError as e:
         return e.args[0], HTTPStatus.UNPROCESSABLE_ENTITY
+    except KeyError as e:
+        return e.args[0], HTTPStatus.METHOD_NOT_ALLOWED
     else:
         return response, code
 
@@ -280,7 +283,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = Store(retry=3, cache_time=10)
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)

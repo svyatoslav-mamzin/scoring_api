@@ -1,146 +1,325 @@
-import hashlib
-import datetime
-import functools
 import unittest
-import logging
+import json
+from api import CharField, ListField, DictField, EmailField, PhoneField, DateField, BirthDayField, GenderField, \
+    ClientIDsField, ArgumentsField, MainHTTPHandler, ValidationError
+from constants import UNKNOWN, MALE, FEMALE
+from store import Store
+from time import sleep
+from threading import Thread
+from http.server import HTTPServer
+from http.client import HTTPConnection
 
 
-import constants
-import api
+TEST_HOST = 'localhost'
+TEST_PORT = 10101
 
 
-def cases(cases):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args):
-            for c in cases:
-                new_args = args + (c if isinstance(c, tuple) else (c,))
-                f(*new_args)
+def cases(cases_list):
+    def deco(func):
+        def wrapper(self):
+            for case in cases_list:
+                func(self, case)
+
         return wrapper
-    return decorator
+    return deco
 
 
-class TestSuite(unittest.TestCase):
+class TestCharField(unittest.TestCase):
+    @cases([5, dict(), list(), True])
+    def test_CharField_validate_incorrect_value(self, value):
+        with self.assertRaises(ValidationError):
+            CharField.validate(CharField(), value)
+
+    def test_CharField_validate_correct_value(self):
+        self.assertTrue((CharField.validate(CharField(), '5') is None))
+
+
+class TestListField(unittest.TestCase):
+    @cases([5, dict(), 'ab', True])
+    def test_ListField_validate_incorrect_value(self, value):
+        with self.assertRaises(ValidationError):
+            ListField.validate(ListField(), value)
+
+    def test_ListField_validate_correct_value(self):
+        self.assertTrue(ListField.validate(ListField(), [1, 2, 3]) is None)
+
+
+class TestDictField(unittest.TestCase):
+    @cases([5, list(), 'ab', True])
+    def test_DictField_validate_incorrect_value(self, value):
+        with self.assertRaises(ValidationError):
+            DictField.validate(DictField(), value)
+
+    def test_DictField_validate_correct_value(self):
+        self.assertTrue(DictField.validate(DictField(), {'name': 'Alexy', 'surname': 'Vassili'}) is None)
+
+
+class TestEmailField(unittest.TestCase):
+    @cases([5, list(), 'ab', True, 'ab.com', 'ab at ab.com'])
+    def test_EmailField_validate_incorrect_value(self, value):
+        with self.assertRaises(ValidationError):
+            EmailField.validate(EmailField(), value)
+
+    def test_EmailField_validate_correct_value(self):
+        self.assertTrue(EmailField.validate(EmailField(), 'petros@gmail.com') is None)
+
+
+class TestPhoneField(unittest.TestCase):
+    @cases([5, list(), 'ab', True, 89632223344, 7963222334, 789632223344,
+            '89632223344', '7963222334', '789632223344'])
+    def test_PhoneField_validate_incorrect_value(self, value):
+        with self.assertRaises(ValidationError):
+            PhoneField.validate(PhoneField(), value)
+
+    def test_PhoneField_validate_correct_value(self):
+        self.assertTrue(PhoneField.validate(PhoneField(), '79637222999') is None)
+        self.assertTrue(PhoneField.validate(PhoneField(), 79637222999) is None)
+
+
+class TestDateField(unittest.TestCase):
+    @cases(['08.05..2003', '08.052003', '08/05/2003', '08:05:2003', '08052003'])
+    def test_DateField_validate_incorrect_value(self, value):
+        with self.assertRaises(ValidationError):
+            DateField.validate(DateField(), value)
+
+    def test_DateField_validate_correct_value(self):
+        self.assertTrue(DateField.validate(DateField(), '08.05.2003') is None)
+        self.assertTrue(DateField.validate(DateField(), '08.05.1920') is None)
+
+
+class TestBirthDayField(unittest.TestCase):
+    def test_BirthDayField_validate_incorrect_value(self):
+        with self.assertRaises(ValidationError):
+            # > 70 years
+            BirthDayField.validate(BirthDayField(), '09.05.1945')
+
+    def test_BirthDayField_validate_correct_value(self):
+        self.assertTrue(BirthDayField.validate(BirthDayField(), '09.05.1997') is None)
+
+
+class TestGenderField(unittest.TestCase):
+    def test_GenderField_validate_incorrect_value(self):
+        with self.assertRaises(ValidationError):
+            GenderField.validate(GenderField(), -1)
+        with self.assertRaises(ValidationError):
+            GenderField.validate(GenderField(), 100)
+
+    def test_GenderField_validate_correct_value(self):
+        self.assertTrue(GenderField.validate(GenderField(), UNKNOWN) is None)
+        self.assertTrue(GenderField.validate(GenderField(), MALE) is None)
+        self.assertTrue(GenderField.validate(GenderField(), FEMALE) is None)
+
+
+class TestClientIDsField(unittest.TestCase):
+    def test_ClientIDsField_validate_incorrect_value(self):
+        with self.assertRaises(ValidationError):
+            # not a List
+            ClientIDsField.validate(ClientIDsField(), (1, 2, 3, 4, 5))
+        with self.assertRaises(ValidationError):
+            # not int
+            ClientIDsField.validate(ClientIDsField(), (1, 2, 3, 4, '5'))
+
+    def test_ClientIDsField_validate_correct_value(self):
+        self.assertTrue(ClientIDsField.validate(ClientIDsField(), [1, 2, 3, 4, 5]) is None)
+
+
+class TestArgumentsField(unittest.TestCase):
+    def test_ArgumentsField_validate_incorrect_value(self):
+        with self.assertRaises(ValidationError):
+            # non-dict type
+            ArgumentsField.validate(ArgumentsField(), [1, 2, 3, 4, 5])
+
+    def test_ArgumentsField_validate_correct_value(self):
+        self.assertTrue(ArgumentsField.validate(ArgumentsField(), {"phone": "79175002040",
+                                                     "email": "stuv@otus.ru",
+                                                     "first_name": "Сергей",
+                                                     "last_name": "Костюков",
+                                                     "birthday": "01.01.1990",
+                                                     "gender": 1}
+                                              ) is None)
+
+
+class TestHTTP(unittest.TestCase):
+    host = TEST_HOST
+    port = TEST_PORT
+
+    headers = {"Content-type": "application/json",
+               "Accept": "text/plain"}
+
+    server = None
+    thread = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = HTTPServer((cls.host, cls.port), MainHTTPHandler)
+        cls.thread = Thread(target=cls.server.serve_forever)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.thread.join()
+
     def setUp(self):
-        self.context = {}
-        self.headers = {}
-        self.settings = {}
+        self.conn = HTTPConnection(self.host, self.port, timeout=10)
 
-    def get_response(self, request):
-        return api.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
+    def tearDown(self):
+        self.conn.close()
 
-    def set_valid_auth(self, request):
-        if request.get("login") == api.ADMIN_LOGIN:
-            request["token"] = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).encode('utf-8')).hexdigest()
-        else:
-            msg = request.get("account", "") + request.get("login", "") + api.SALT
-            request["token"] = hashlib.sha512(msg.encode('utf-8')).hexdigest()
+    def test_online_score(self):
+        req = {"account": "horns&hoofs",
+               "login": "h&f",
+               "method": "online_score",
+               "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+               "arguments": {"phone": "79175002040", "email": "stupnikov@otus.ru", "first_name": "Стансилав",
+                             "last_name": "Ступников", "birthday": "01.01.1990", "gender": 1}}
+        self.conn.request("POST", "/method/", json.dumps(req), self.headers)
+        r = self.conn.getresponse()
+        data = json.load(r)
+        response = data['response']
+        self.assertEqual(r.status, 200)
+        self.assertIn('score', response)
+        self.assertEqual(response['score'], '5.0')
 
-    def test_empty_request(self):
-        _, code = self.get_response({})
-        self.assertEqual(constants.INVALID_REQUEST, code)
-
-    @cases([
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "", "arguments": {}},
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "sdd", "arguments": {}},
-        {"account": "horns&hoofs", "login": "admin", "method": "online_score", "token": "", "arguments": {}},
-    ])
+    @cases([{"account": "horns&hoofs",  # empty token
+               "login": "h&f",
+               "method": "online_score",
+               "token": "",
+               "arguments": {}},
+            {"account": "horns&hoofs",  # invalid token
+             "login": "h&f",
+             "method": "online_score",
+             "token": "sdd",
+             "arguments": {}},
+            {"account": "horns&hoof",  # broken acc
+             "login": "h&f",
+             "method": "online_score",
+             "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+             "arguments": {}},
+            {"account": "",  # empty acc
+             "login": "h&f",
+             "method": "online_score",
+             "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+             "arguments": {}},
+            {"account": "horns&hoofs",  # broken login
+             "login": "h&",
+             "method": "online_score",
+             "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+             "arguments": {}},
+            {"account": "horns&hoofs",  # empty login
+             "login": "",
+             "method": "online_score",
+             "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+             "arguments": {}},
+            {"account": "",
+             "login": "",
+             "method": "online_score",
+             "token": "",
+             "arguments": {}},
+            {"account": "horns&hoofs",
+             "login": "",
+             "method": "online_score",
+             "token": "",
+             "arguments": {}},
+            ])
     def test_bad_auth(self, request):
-        _, code = self.get_response(request)
-        self.assertEqual(constants.FORBIDDEN, code)
+        self.conn.request("POST", "/method/", json.dumps(request), self.headers)
+        r = self.conn.getresponse()
+        data = json.load(r)
+        self.assertIn('error', data)
+        self.assertEqual(r.status, 403)
+        self.assertEqual(data['error'], 'Forbidden')
 
-    @cases([
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score"},
-        {"account": "horns&hoofs", "login": "h&f", "arguments": {}},
-        {"account": "horns&hoofs", "method": "online_score", "arguments": {}},
-    ])
-    def test_invalid_method_request(self, request):
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(constants.INVALID_REQUEST, code)
-        self.assertTrue(len(response))
+    def test_unexpected_method(self):
+        self.conn.request("GET", "/method/")
+        r = self.conn.getresponse()
+        data = r.read()
+        self.assertEqual(r.status, 501)
 
-    @cases([
-        {},
-        {"phone": "79175002040"},
-        {"phone": "89175002040", "email": "stupnikov@otus.ru"},
-        {"phone": "79175002040", "email": "stupnikovotus.ru"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": -1},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": "1"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.1890"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "XXX"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.2000", "first_name": 1},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.2000",
-         "first_name": "s", "last_name": 2},
-        {"phone": "79175002040", "birthday": "01.01.2000", "first_name": "s"},
-        {"email": "stupnikov@otus.ru", "gender": 1, "last_name": 2},
-    ])
-    def test_invalid_score_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(constants.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+    @cases(["/me/", "/", "../../"])
+    def test_unexpected_url(self, url):
+        req = {"account": "horns&hoofs",
+               "login": "h&f",
+               "method": "online_score",
+               "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+               "arguments": {"phone": "79175002040", "email": "stupnikov@otus.ru", "first_name": "Стансилав",
+                             "last_name": "Ступников", "birthday": "01.01.1990", "gender": 1}}
+        self.conn.request("POST", url, json.dumps(req), self.headers)
+        r = self.conn.getresponse()
+        data = json.load(r)
+        self.assertIn('error', data)
+        self.assertEqual(r.status, 404)
 
-    @cases([
-        {"phone": "79175002040", "email": "stupnikov@otus.ru"},
-        {"phone": 79175002040, "email": "stupnikov@otus.ru"},
-        {"gender": 1, "birthday": "01.01.2000", "first_name": "a", "last_name": "b"},
-        {"gender": 0, "birthday": "01.01.2000"},
-        {"gender": 2, "birthday": "01.01.2000"},
-        {"first_name": "a", "last_name": "b"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.2000",
-         "first_name": "a", "last_name": "b"},
-    ])
-    def test_ok_score_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(constants.OK, code, arguments)
-        score = response.get("score")
-        self.assertTrue(isinstance(score, (int, float)) and score >= 0, arguments)
-        self.assertEqual(sorted(self.context["has"]), sorted(arguments.keys()))
+    def test_unexpected_api_method(self):
+        req = {"account": "horns&hoofs",
+               "login": "h&f",
+               "method": "foo",
+               "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+               "arguments": {"phone": "79175002040", "email": "stupnikov@otus.ru", "first_name": "Стансилав",
+                             "last_name": "Ступников", "birthday": "01.01.1990", "gender": 1}}
+        self.conn.request("POST", "method", json.dumps(req), self.headers)
+        r = self.conn.getresponse()
+        data = json.load(r)
+        self.assertIn('error', data)
+        self.assertEqual(r.status, 405)
 
-    def test_ok_score_admin_request(self):
-        arguments = {"phone": "79175002040", "email": "stupnikov@otus.ru"}
-        request = {"account": "horns&hoofs", "login": "admin", "method": "online_score", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(constants.OK, code)
-        score = response.get("score")
-        self.assertEqual(score, 42)
+    def test_clients_interests(self):
+        req = {"account": "horns&hoofs",
+               "login": "h&f",
+               "method": "clients_interests",
+               "token": "55cc9ce545bcd144300fe9efc28e65d415b923ebb6be1e19d2750a2c03e80dd209a27954dca045e5bb12418e7d89b6d718a9e35af34e14e1d5bcd5a08f21fc95",
+               "arguments": {"client_ids": [1, 2, 3, 4], "date": "20.07.2017"}}
+        self.conn.request("POST", "/method/", json.dumps(req), self.headers)
+        r = self.conn.getresponse()
+        data = json.load(r)
+        self.assertIn('response', data)
+        response = data['response']
+        self.assertEqual(type(response), dict)
+        for key, value in response.items():
+            self.assertEqual(type(key), str)
+            self.assertEqual(type(value), list)
 
-    @cases([
-        {},
-        {"date": "20.07.2017"},
-        {"client_ids": [], "date": "20.07.2017"},
-        {"client_ids": {1: 2}, "date": "20.07.2017"},
-        {"client_ids": ["1", "2"], "date": "20.07.2017"},
-        {"client_ids": [1, 2], "date": "XXX"},
-    ])
-    def test_invalid_interests_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(constants.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
 
-    @cases([
-        {"client_ids": [1, 2, 3], "date": datetime.datetime.today().strftime("%d.%m.%Y")},
-        {"client_ids": [1, 2], "date": "19.07.2017"},
-        {"client_ids": [0]},
-    ])
-    def test_ok_interests_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(constants.OK, code, arguments)
-        self.assertEqual(len(arguments["client_ids"]), len(response))
-        #self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
-        #                for v in response.values()))
-        self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
+class TestStore(unittest.TestCase):
+    store = Store()
+
+    def test_cache_set(self):
+        self.assertTrue(self.store.cache_set('key1', 'value1'))
+
+    def test_cache_get(self):
+        self.store.cache_set('key2', 'value2')
+        value = self.store.cache_get('key2')
+        self.assertEqual(value, 'value2')
+
+    def test_cache_timeout(self):
+        self.store.cache_set('key3', 'value3', cache_time=2)
+        sleep(2)
+        value = self.store.cache_get('key3')
+        self.assertEqual(value, None)
+
+    def test_set(self):
+        self.assertTrue(self.store.set('key4', 'value4'))
+
+    def test_get(self):
+        self.store.set('key5', 'value5')
+        value = self.store.get('key5')
+        self.assertEqual(value, 'value5')
+
+    def test_reconnect(self):
+        class FakeRedis:
+            attempts = 3
+            @classmethod
+            def get(cls, key):
+                cls.attempts -= 1
+                if not cls.attempts == 0:
+                    raise Exception
+                return key
+        tmp_store = self.store.store
+        self.store.store = FakeRedis()
+        value = self.store.get('key6')
+        self.assertEqual(value, 'key6')
+        self.store.store = tmp_store
 
 
 if __name__ == "__main__":
-    logging.basicConfig()
     unittest.main()

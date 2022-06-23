@@ -23,3 +23,8 @@ GENDERS = {
     MALE: "male",
     FEMALE: "female",
 }
+
+# Redis
+HOST = 'localhost'
+PORT = 6379
+SOCKET_TIMEOUT = 3
