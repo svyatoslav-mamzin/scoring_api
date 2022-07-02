@@ -10,3 +10,4 @@
 
 ```curl -X POST -H "Content-Type: application/json" -d '{"account": "horns&hoofs", "login": "admin", "method": "clients_interests", "token": "fb7bd9a2432f1694ceb9573f02ea31ca47b1dd26ada49b266eb8b4537f68a87863aac604b43dac7b5e3cce97a57573c00a4d1cabbcbd15cb5d3c3974e8b85c6a", "arguments": {"client_ids": [1,2,3,4], "date": "20.07.2017"}}' http://127.0.0.1:8080/method/```
 
+Для запуска тестов ```python -m unittest discover -s tests/unit```.

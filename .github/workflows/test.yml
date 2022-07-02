@@ -18,4 +18,4 @@ jobs:
 
       - name: Run test suite
         run: |
-          python test.py
+          python -m unittest discover -s tests/unit
