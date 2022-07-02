@@ -1,4 +1,5 @@
 import json
+import os
 import unittest
 from store import Store
 from time import sleep
@@ -8,8 +9,8 @@ from http.server import HTTPServer
 from http.client import HTTPConnection
 
 
-TEST_HOST = 'localhost'
-TEST_PORT = 10101
+TEST_HOST = os.environ.get("TEST_HOST", None)
+TEST_PORT = os.environ.get("TEST_PORT", None)
 
 
 def cases(cases_list):
@@ -33,22 +34,27 @@ class TestHTTP(unittest.TestCase):
     thread = None
 
     @classmethod
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def setUpClass(cls):
         cls.server = HTTPServer((cls.host, cls.port), MainHTTPHandler)
         cls.thread = Thread(target=cls.server.serve_forever)
         cls.thread.start()
 
     @classmethod
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def tearDownClass(cls):
         cls.server.shutdown()
         cls.thread.join()
 
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def setUp(self):
         self.conn = HTTPConnection(self.host, self.port, timeout=10)
 
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def tearDown(self):
         self.conn.close()
 
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def test_online_score(self):
         req = {"account": "horns&hoofs",
                "login": "h&f",
@@ -105,6 +111,7 @@ class TestHTTP(unittest.TestCase):
              "token": "",
              "arguments": {}},
             ])
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def test_bad_auth(self, request):
         self.conn.request("POST", "/method/", json.dumps(request), self.headers)
         r = self.conn.getresponse()
@@ -113,6 +120,7 @@ class TestHTTP(unittest.TestCase):
         self.assertEqual(r.status, 403)
         self.assertEqual(data['error'], 'Forbidden')
 
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def test_unexpected_method(self):
         self.conn.request("GET", "/method/")
         r = self.conn.getresponse()
@@ -120,6 +128,7 @@ class TestHTTP(unittest.TestCase):
         self.assertEqual(r.status, 501)
 
     @cases(["/me/", "/", "../../"])
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def test_unexpected_url(self, url):
         req = {"account": "horns&hoofs",
                "login": "h&f",
@@ -133,6 +142,7 @@ class TestHTTP(unittest.TestCase):
         self.assertIn('error', data)
         self.assertEqual(r.status, 404)
 
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def test_unexpected_api_method(self):
         req = {"account": "horns&hoofs",
                "login": "h&f",
@@ -146,6 +156,7 @@ class TestHTTP(unittest.TestCase):
         self.assertIn('error', data)
         self.assertEqual(r.status, 405)
 
+    @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
     def test_clients_interests(self):
         req = {"account": "horns&hoofs",
                "login": "h&f",
