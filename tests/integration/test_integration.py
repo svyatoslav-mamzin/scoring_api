@@ -1,26 +1,20 @@
-import json
 import os
+import json
 import unittest
-from store import Store
 from time import sleep
+from store import Store
 from threading import Thread
 from api import MainHTTPHandler
+from constants import HOST, PORT
+from tests.unit.test import cases
 from http.server import HTTPServer
 from http.client import HTTPConnection
 
 
 TEST_HOST = os.environ.get("TEST_HOST", None)
 TEST_PORT = os.environ.get("TEST_PORT", None)
-
-
-def cases(cases_list):
-    def deco(func):
-        def wrapper(self):
-            for case in cases_list:
-                func(self, case)
-
-        return wrapper
-    return deco
+TEST_REDIS_HOST = os.environ.get("TEST_REDIS_HOST", HOST)
+TEST_REDIS_PORT = os.environ.get("TEST_REDIS_PORT", PORT)
 
 
 class TestHTTP(unittest.TestCase):
@@ -177,28 +171,34 @@ class TestHTTP(unittest.TestCase):
 class TestStore(unittest.TestCase):
     store = Store()
 
+    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
     def test_cache_set(self):
         self.assertTrue(self.store.cache_set('key1', 'value1'))
 
+    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
     def test_cache_get(self):
         self.store.cache_set('key2', 'value2')
         value = self.store.cache_get('key2')
         self.assertEqual(value, 'value2')
 
+    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
     def test_cache_timeout(self):
         self.store.cache_set('key3', 'value3', cache_time=2)
         sleep(2)
         value = self.store.cache_get('key3')
         self.assertEqual(value, None)
 
+    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
     def test_set(self):
         self.assertTrue(self.store.set('key4', 'value4'))
 
+    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
     def test_get(self):
         self.store.set('key5', 'value5')
         value = self.store.get('key5')
         self.assertEqual(value, 'value5')
 
+    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
     def test_reconnect(self):
         class FakeRedis:
             attempts = 3
