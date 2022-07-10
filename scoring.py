@@ -12,7 +12,7 @@ def get_score(store, phone, email, birthday=None, gender=None, first_name=None, 
     key = "uid:" + hashlib.md5("".join(key_parts).encode('utf-8')).hexdigest()
 
     try:
-        score = store.cache_get(key)
+        score = store.cache_get(key) or 0
     except Exception:
         score = 0
 

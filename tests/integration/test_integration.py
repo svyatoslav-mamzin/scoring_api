@@ -5,7 +5,6 @@ from time import sleep
 from store import Store
 from threading import Thread
 from api import MainHTTPHandler
-from constants import HOST, PORT
 from tests.unit.test import cases
 from http.server import HTTPServer
 from http.client import HTTPConnection
@@ -13,8 +12,19 @@ from http.client import HTTPConnection
 
 TEST_HOST = os.environ.get("TEST_HOST", None)
 TEST_PORT = os.environ.get("TEST_PORT", None)
-TEST_REDIS_HOST = os.environ.get("TEST_REDIS_HOST", HOST)
-TEST_REDIS_PORT = os.environ.get("TEST_REDIS_PORT", PORT)
+
+
+def get_redis_status():
+    store = Store()
+    try:
+        store.cache_set('key', 'value')
+        store.cache_get('key')
+        return False
+    except:
+        return True
+
+
+REDIS_IS_NOT_RUN = get_redis_status()
 
 
 class TestHTTP(unittest.TestCase):
@@ -62,7 +72,7 @@ class TestHTTP(unittest.TestCase):
         response = data['response']
         self.assertEqual(r.status, 200)
         self.assertIn('score', response)
-        self.assertEqual(response['score'], '5.0')
+        self.assertEqual(float(response['score']), 5.0)
 
     @cases([{"account": "horns&hoofs",  # empty token
                "login": "h&f",
@@ -151,6 +161,7 @@ class TestHTTP(unittest.TestCase):
         self.assertEqual(r.status, 405)
 
     @unittest.skipIf(TEST_HOST is None or TEST_PORT is None, "The test host and port are not specified")
+    @unittest.skipIf(REDIS_IS_NOT_RUN, "Redis is not running")
     def test_clients_interests(self):
         req = {"account": "horns&hoofs",
                "login": "h&f",
@@ -171,34 +182,34 @@ class TestHTTP(unittest.TestCase):
 class TestStore(unittest.TestCase):
     store = Store()
 
-    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
+    @unittest.skipIf(REDIS_IS_NOT_RUN, "Redis is not running")
     def test_cache_set(self):
         self.assertTrue(self.store.cache_set('key1', 'value1'))
 
-    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
+    @unittest.skipIf(REDIS_IS_NOT_RUN, "Redis is not running")
     def test_cache_get(self):
         self.store.cache_set('key2', 'value2')
         value = self.store.cache_get('key2')
         self.assertEqual(value, 'value2')
 
-    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
+    @unittest.skipIf(REDIS_IS_NOT_RUN, "Redis is not running")
     def test_cache_timeout(self):
         self.store.cache_set('key3', 'value3', cache_time=2)
         sleep(2)
         value = self.store.cache_get('key3')
         self.assertEqual(value, None)
 
-    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
+    @unittest.skipIf(REDIS_IS_NOT_RUN, "Redis is not running")
     def test_set(self):
         self.assertTrue(self.store.set('key4', 'value4'))
 
-    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
+    @unittest.skipIf(REDIS_IS_NOT_RUN, "Redis is not running")
     def test_get(self):
         self.store.set('key5', 'value5')
         value = self.store.get('key5')
         self.assertEqual(value, 'value5')
 
-    @unittest.skipIf(TEST_REDIS_HOST is None or TEST_REDIS_PORT is None, "The test host and port are not specified")
+    @unittest.skipIf(REDIS_IS_NOT_RUN, "Redis is not running")
     def test_reconnect(self):
         class FakeRedis:
             attempts = 3
